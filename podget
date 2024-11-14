@@ -2608,11 +2608,11 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
             fi
             case ${FILETYPE} in
                 'utf8')
-                    INDEXFILE=$(curl -v "${CURL_OPTIONS[@]}" "${FEED_URL}") && EXITSTATUS=0 || EXITSTATUS=1
+                    INDEXFILE=$(curl ${CURL_OPTIONS[@]} "${FEED_URL}") && EXITSTATUS=0 || EXITSTATUS=1
                     ;;
                 'utf16')
                     # Slight gymnastics to report the exit status of CURL and not ICONV.
-                    INDEXFILE=$(curl "${CURL_OPTIONS[@]}" -O - "${FEED_URL}" | iconv -f UTF-16 -t UTF-8; exit "${PIPESTATUS[0]}") && EXITSTATUS=0 || EXITSTATUS=1
+                    INDEXFILE=$(curl ${CURL_OPTIONS[@]} -O - "${FEED_URL}" | iconv -f UTF-16 -t UTF-8; exit "${PIPESTATUS[0]}") && EXITSTATUS=0 || EXITSTATUS=1
                     ;;
             esac
 
@@ -3140,17 +3140,17 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                             fi
                             # This has been moved here to handle long filenames given by some feeds that result in a CURL Error
                             if [[ -n ${MOD_FILENAME} ]]; then
-                                curl "${CURL_OPTIONS[@]}" -v -O "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${MOD_FILENAME}" "${URL}" 2> "${DIR_SESSION}/${URL_FILENAME}.servresp" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
+                                curl ${CURL_OPTIONS[@]} -L --output "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${MOD_FILENAME}" "${URL}" 2> "${DIR_SESSION}/${URL_FILENAME}.servresp" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
                             else
-                                curl "${CURL_OPTIONS[@]}" -v -O "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${URL_FILENAME}" "${URL}" 2> "${DIR_SESSION}/${URL_FILENAME}.servresp" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
+                                curl ${CURL_OPTIONS[@]} -L --output "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${URL_FILENAME}" "${URL}" 2> "${DIR_SESSION}/${URL_FILENAME}.servresp" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
                             fi
                         else
                             # This has been moved here to handle long filenames given by some feeds that result in a CURL Error
                             #   ( I'm looking at you ITunes..... )
                             if [[ -n ${MOD_FILENAME} ]]; then
-                                curl "${CURL_OPTIONS[@]}" -v -O "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${MOD_FILENAME}" "${URL}" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
+                                curl ${CURL_OPTIONS[@]} -L --output "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${MOD_FILENAME}" "${URL}" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
                             else
-                                curl "${CURL_OPTIONS[@]}" -v -O "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${URL_FILENAME}" "${URL}" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
+                                curl ${CURL_OPTIONS[@]} -L --output "${DIR_LIBRARY}"/"${FEED_CATEGORY}"/"${FEED_NAME}"/"${URL_FILENAME}" "${URL}" && CURL_EXITSTATUS=0 || CURL_EXITSTATUS=1
                             fi
                         fi
 
@@ -3861,7 +3861,7 @@ if [[ -n ${IMPORT_OPML+set} ]]; then
         if (( VERBOSITY >= 2 )) ; then
             echo "Getting opml list."
         fi
-        opml_list=$(curl "${CURL_OPTIONS[@]}" -O - "${IMPORT_OPML}")
+        opml_list=$(curl ${CURL_OPTIONS[@]} -O - "${IMPORT_OPML}")
     else
         opml_list=$(cat "${IMPORT_OPML}")
     fi
@@ -3985,7 +3985,7 @@ if [[ -n ${IMPORT_PCAST+set} ]] ; then
         if (( VERBOSITY >= 2 )) ; then
             echo "Getting pcast file."
         fi
-        pcast_data=$(curl "${CURL_OPTIONS[@]}" -O - "${IMPORT_PCAST}")
+        pcast_data=$(curl ${CURL_OPTIONS[@]} -O - "${IMPORT_PCAST}")
     else
         pcast_data=$(cat "${IMPORT_PCAST}")
     fi
