@@ -2787,12 +2787,16 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                          "URL" )
                              # with cleanup for URL (used to be called FINAL below ATOM section)
                              ITEM_URL=$(echo "${DATA}" | sed -e 's/\s/%20/g' -e "s/'/%27/g" -e 's/\&apos;/%27/g' -e 's/\&amp;/\&/g')
-                             # Enabled handling of unset ITEM_TITLE items by including a dash at the end of the variable name to
-                             # signify that the default is a blank value (or we could specify a value we wanted after the dash).
-                             INDEXFILE_TMP2+="${ITEM_URL}<Url-Title>${ITEM_TITLE-}<Title-PubDate>${ITEM_PUBDATE}${NEWLINE}"
-                             unset -v ITEM_TITLE ITEM_URL ITEM_PUBDATE
                              ;;
                      esac
+
+                     if [[ ! -z ${ITEM_PUBDATE+set} ]] && [[ ! -z ${ITEM_URL+set} ]] && [[ ! -z ${ITEM_TITLE+set} ]]; then
+                        # Enabled handling of unset ITEM_TITLE items by including a dash at the end of the variable name to
+                        # signify that the default is a blank value (or we could specify a value we wanted after the dash).
+                        INDEXFILE_TMP2+="${ITEM_URL}<Url-Title>${ITEM_TITLE-}<Title-PubDate>${ITEM_PUBDATE}${NEWLINE}"
+                        unset -v ITEM_TITLE ITEM_URL ITEM_PUBDATE
+                     fi
+
                  done <<<"${INDEXFILE_TMP}"
                  if (( POST_CURL_RENAME_REVTITLETAG > 0 )); then
                      # Return INDEX to its default order
