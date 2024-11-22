@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S PS4='\\033[0;33m+(${BASH_SOURCE:-$0}:${LINENO}):\\033[0m ${FUNCNAME[0]:+${FUNCNAME[0]}(): }' bash
 
 # Useful to follow command execution and determine where an extra echo outputs during silent mode.
 #set -x
@@ -1338,6 +1338,18 @@ FILTER_OPTIONS() {
         printf -v "${FILTER_ITEM}" '%s' "${!FILTER_ITEM/OPT_FILENAME_RENAME_MDATE}"
     fi
 
+    if [[ "${!FILTER_ITEM}" =~ ^(.+[[:space:]]|[[:space:]]?)OPT_FILE_UPDATE_METADATA.*$ ]]; then
+        POST_CURL_UPDATE_METADATA=1
+#        eval "${FILTER_ITEM}=\${!FILTER_ITEM/OPT_FILENAME_RENAME_PUBDATE}"
+        printf -v "${FILTER_ITEM}" '%s' "${!FILTER_ITEM/OPT_FILE_UPDATE_METADATA}"
+    fi
+
+    if [[ "${!FILTER_ITEM}" =~ ^(.+[[:space:]]|[[:space:]]?)OPT_FILENAME_RENAME_PUBDATE.*$ ]]; then
+        POST_CURL_RENAME_PUBDATE=1
+#        eval "${FILTER_ITEM}=\${!FILTER_ITEM/OPT_FILENAME_RENAME_PUBDATE}"
+        printf -v "${FILTER_ITEM}" '%s' "${!FILTER_ITEM/OPT_FILENAME_RENAME_PUBDATE}"
+    fi
+
     if [[ "${!FILTER_ITEM}" =~ ^(.+[[:space:]]|[[:space:]]?)OPT_FILENAME_RENAME_TITLETAG.*$ ]]; then
         POST_CURL_RENAME_TITLETAG=1
         printf -v "${FILTER_ITEM}" '%s' "${!FILTER_ITEM/OPT_FILENAME_RENAME_TITLETAG}"
@@ -2601,9 +2613,12 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                 echo "Downloading feed index from ${FEED_URL}"
             fi
             if [[ -n ${URL_USERNAME+set} ]]; then
-                url="https://kdrt.org"
-                form_build_id=$(curl -s -N $url/user | grep -m 1 -o 'form-[^" ]\{40,\}')
-                curl -c cookie.txt -v -d "name=$URL_USERNAME&pass=$URL_PASSWORD&form_id=user_login&op=Log+in&form_build_id=$form_build_id" $url/user
+                BASE_URL=$FEED_URL
+                BASE_URL="${BASE_URL#http://}"
+                BASE_URL="${BASE_URL#https://}"
+                BASE_URL="https://${BASE_URL%%/*}"
+                form_build_id=$(curl -s -N $BASE_URL/user | grep -m 1 -o 'form-[^" ]\{40,\}')
+                curl -c cookie.txt -v -d "name=$URL_USERNAME&pass=$URL_PASSWORD&form_id=user_login&op=Log+in&form_build_id=$form_build_id" $BASE_URL/user
                 CURL_OPTIONS+=("-b cookie.txt")
             fi
             case ${FILETYPE} in
@@ -2706,7 +2721,10 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                                              -e 's/.*<enclosure.*url\s*=\s*"\([^"]\+\)".*/URL \1/Ip' -e t \
                                              -e "s/.*<enclosure.*url\\s*=\\s*'\\([^']\\+\\)'.*/URL \\1/Ip" -e t \
                                              -e 's/.*<title>\(.*\)<[/]title>.*$/TITLE \1/Ip' -e t \
+                                             -e 's/.*<pubDate>\(.*\)<[/]pubDate>.*$/PUBDATE \1/Ip' -e t \
                                              -e '/\(<enclosure\|<title>\).*/I{N;s/\ *\n/\ /;T;ba}')
+                    PODCAST_TITLE=$(echo "${TESTLINES}" | \
+                                sed -n -e 's/.*<title>\(.*\)<[/]title>.*$/\1/Ip' )
                 else
                     # This section adds a couple of tests to look for <media:content ...> tags from the RSS Media Specification.
                     # This is used in the feeds created by FreshRSS aggregator so it's use is not expected to be common but we may
@@ -2763,13 +2781,16 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                          "TITLE" )
                              ITEM_TITLE="${DATA}"
                              ;;
+                         "PUBDATE" )
+                            ITEM_PUBDATE="${DATA}"
+                             ;;
                          "URL" )
                              # with cleanup for URL (used to be called FINAL below ATOM section)
                              ITEM_URL=$(echo "${DATA}" | sed -e 's/\s/%20/g' -e "s/'/%27/g" -e 's/\&apos;/%27/g' -e 's/\&amp;/\&/g')
                              # Enabled handling of unset ITEM_TITLE items by including a dash at the end of the variable name to
                              # signify that the default is a blank value (or we could specify a value we wanted after the dash).
-                             INDEXFILE_TMP2+="${ITEM_URL}<Url-Title>${ITEM_TITLE-}${NEWLINE}"
-                             unset -v ITEM_TITLE ITEM_URL
+                             INDEXFILE_TMP2+="${ITEM_URL}<Url-Title>${ITEM_TITLE-}<Title-PubDate>${ITEM_PUBDATE}${NEWLINE}"
+                             unset -v ITEM_TITLE ITEM_URL ITEM_PUBDATE
                              ;;
                      esac
                  done <<<"${INDEXFILE_TMP}"
@@ -3036,6 +3057,8 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                     # Divide URL and TITLE from DATA
                     URL="${DATA%<Url-Title>*}"
                     TITLE="${DATA#*<Url-Title>}"
+                    PUBDATE="${TITLE#*<Title-PubDate>}"
+                    TITLE="${TITLE%<Title-PubDate>*}"
 
                     # Safety check:  if ${DATA} does not contain '<Url-Title>'
                     if [[ "${URL}" == "${TITLE}" ]]; then
@@ -3374,7 +3397,35 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                                     fi
                                 fi
                             fi
+                            if (( POST_CURL_UPDATE_METADATA == 1 )); then
+                                id3tag --song="$PODCAST_TITLE" "${DIR_LIBRARY}/${FEED_CATEGORY}/${FEED_NAME}/${FINAL_FILENAME}"
+                            fi
 
+                            # Rename file to start from modification date
+                            if (( POST_CURL_RENAME_PUBDATE == 1 )); then
+                                FILE_PUBDATE=$(date -d "$PUBDATE" '+%F')
+                                FILE_PUBDATE_END=$(date -d "$PUBDATE +1 week" '+%F')
+                                FILENAME_PUBDATE="${FILE_PUBDATE}_${FILE_PUBDATE_END}_${FINAL_FILENAME}"
+                                if [[ ! -f "${DIR_LIBRARY}/${FEED_CATEGORY}/${FEED_NAME}/${FILENAME_PUBDATE}" ]]; then
+                                    if (( VERBOSITY >= 2 )); then
+                                        echo "FILENAME CHANGE from ${FINAL_FILENAME} to ${FILENAME_PUBDATE}"
+                                    fi
+                                    mv "${DIR_LIBRARY}/${FEED_CATEGORY}/${FEED_NAME}/${FINAL_FILENAME}" "${DIR_LIBRARY}/${FEED_CATEGORY}/${FEED_NAME}/${FILENAME_PUBDATE}"
+                                    FINAL_FILENAME="${FILENAME_PUBDATE}"
+                                else
+                                    if (( FORCE != 0 )); then
+                                        if (( VERBOSITY >= 2 )); then
+                                            echo "Forced FILENAME CHANGE from ${FINAL_FILENAME} to ${FILENAME_MDATE}"
+                                        fi
+                                        mv -f "${DIR_LIBRARY}/${FEED_CATEGORY}/${FEED_NAME}/${FINAL_FILENAME}" "${DIR_LIBRARY}/${FEED_CATEGORY}/${FEED_NAME}/${FILENAME_PUBDATE}"
+                                        FINAL_FILENAME="${FILENAME_PUBDATE}"
+                                    else
+                                        if (( VERBOSITY >= 2 )); then
+                                            echo "FILENAME CHANGE PREVENTED [ ${FILENAME_PUBDATE} already exists ]"
+                                        fi
+                                    fi
+                                fi
+                            fi
 
                             # Rename file to start from modification date
                             if (( POST_CURL_RENAME_MDATE == 1 )); then

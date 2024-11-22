@@ -2,7 +2,7 @@
 .TH podget 7 "10 February 2023" "" ""
 
 .SH NAME
-.B Podget 
+.B Podget
 - Simple tool to automate downloading of podcasts.
 
 .SH SYNOPSIS
@@ -166,7 +166,7 @@ If it is required to run podget with different options for certain feeds, then a
 .I serverlist
 This is a file of all the feeds that Podget should monitor and download from.
 
-If you need to separate your feeds into multiple lists, then additional files can be created with the --serverlist option.  When this option is 
+If you need to separate your feeds into multiple lists, then additional files can be created with the --serverlist option.  When this option is
 run with a new filename that does not exist yet, the file is created with a default list of a single feed.  Whenever a new list is created, Podget will download a single item from the single feed included by default to verify that everything is working.
 
 For a description of the options available for this file, please refer to the SERVER LIST CONFIGURATION section of this document.
@@ -310,7 +310,7 @@ Simply execute podget like so:
 .fi
 
 .PP
-You can enable other options as well if you need to but for debugging purposes, 
+You can enable other options as well if you need to but for debugging purposes,
 it is highly recommended that you enabled as much verbosity as possible.
 
 .SS SERVER LIST CONFIGURATION
@@ -435,6 +435,14 @@ Some feeds do not have the detailed filename listed in the FEED but rather renam
 .TP
 .I  OPT_FILENAME_RENAME_MDATE
 For feeds that use a singular filename for each item that is identified by a long somewhat incomprehensible string in the URL.  These feeds were previously fixed with FILENAME_FORMATFIX4 which would append the string to the common filename to produce unique filenames for each item.  However this produced filenames that were not very easy to understand.  This option gives us another method for dealing with these common filenames.  This appends the date of the files last change (modification date) as a prefix to the filename in the format of YYYYMMDD_HHhMMm_<common-part>.  This makes the filenames sortable and gives the user something that makes a moderate amount of sense.  Does not work for all feeds, for some feeds the last modification time for each file is the time of download.  Which may be acceptable in some situations but can cause confusion when downloading more than one item at a time from a feed.
+
+.TP
+.I  OPT_FILENAME_RENAME_PUBDATE
+This appends the items pubdate as a prefix to the filename in the format of YYYY-MM-DD_<common-part>.
+
+.TP
+.I  OPT_FILE_UPDATE_METADATA
+This updates the files id3 title tag with the title of the podcast.
 
 .TP
 .I OPT_WGET_DEFUSERAGENT
