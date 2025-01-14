@@ -646,6 +646,11 @@ ARRAY_CONTAINS() {
 CLEANUP_AND_EXIT() {
     local EXITSTATUS=${1}
 
+    LOGIN_COOKIE="${DIR_SESSION}/cookie.txt"
+    if [[ -f ${LOGIN_COOKIE} ]]; then
+        rm -f ${LOGIN_COOKIE}
+    fi
+
     if (( VERBOSITY >= 2 )) ; then
         #echo -en "\nClosing session"
         printf '\n%s' "Closing session"
@@ -1166,12 +1171,12 @@ titleFixFormat() {
        printf '%-30s %s\n' "ORIGINAL TITLE:" "${ORIGINAL_TITLE}"
     fi
 
-    if [[ "${MODIFIED_TITLE}" =~ .*" ".* ]]; then
-        MODIFIED_TITLE="${MODIFIED_TITLE// /${FILENAME_REPLACECHAR}}"
-        if (( DEBUG == 1 )) ; then
-            echo "${DEBUG_LEADER} TITLE FORMAT FIXED: ${MODIFIED_TITLE}"
-        fi
-    fi
+    #if [[ "${MODIFIED_TITLE}" =~ .*" ".* ]]; then
+    #    MODIFIED_TITLE="${MODIFIED_TITLE// /${FILENAME_REPLACECHAR}}"
+    #    if (( DEBUG == 1 )) ; then
+    #        echo "${DEBUG_LEADER} TITLE FORMAT FIXED: ${MODIFIED_TITLE}"
+    #    fi
+    #fi
 
     # Fix for ampersand (&) is interesting because the character will be removed by the default FILENAME_BADCHARS list.
     # We include it here for people who remove the & from their FILENAME_BADCHARS.
@@ -1227,6 +1232,12 @@ titleFixFormat() {
             echo "${DEBUG_LEADER} TITLE FORMAT FIXED: ${MODIFIED_TITLE}"
         fi
     fi
+
+    MODIFIED_TITLE=${MODIFIED_TITLE//\./}
+    MODIFIED_TITLE=${MODIFIED_TITLE//:/}
+    MODIFIED_TITLE=${MODIFIED_TITLE//\‘/}
+    MODIFIED_TITLE=${MODIFIED_TITLE//\’/}
+    MODIFIED_TITLE=${MODIFIED_TITLE//,/}
 
     if (( VERBOSITY >= 3 ))  && [[ "${ORIGINAL_TITLE}" != "${MODIFIED_TITLE}" ]]; then
         printf '%-30s %s\n' "MODIFIED TITLE:" "${MODIFIED_TITLE}"
@@ -2039,7 +2050,7 @@ fi
 if (( VERBOSITY <= 1 )) ; then
         CURL_COMMON_OPTIONS="-s ${CURL_BASEOPTS}"
 elif (( VERBOSITY == 2 )) ; then
-    CURL_COMMON_OPTIONS="-v ${CURL_BASEOPTS}"
+    CURL_COMMON_OPTIONS="${CURL_BASEOPTS}"
 elif (( VERBOSITY == 3 )) ; then
     CURL_COMMON_OPTIONS="${CURL_BASEOPTS} --progress=dot:mega"
 else
@@ -2444,11 +2455,13 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                 echo "${DEBUG_LEADER}  Reset POST_CURL_RENAME_TITLETAG"
             fi
             POST_CURL_RENAME_TITLETAG=0
+            POST_CURL_RENAME_PUBDATE=0
 
             if (( DEBUG == 1 )) ; then
                 echo "${DEBUG_LEADER}  Reset POST_CURL_RENAME_REVTITLETAG"
             fi
             POST_CURL_RENAME_REVTITLETAG=0
+            POST_CURL_UPDATE_METADATA=0
 
             if (( DEBUG == 1 )) ; then
                 echo "${DEBUG_LEADER}  Reset ATOM_FILTER_SIMPLE"
@@ -2613,13 +2626,16 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                 echo "Downloading feed index from ${FEED_URL}"
             fi
             if [[ -n ${URL_USERNAME+set} ]]; then
-                BASE_URL=$FEED_URL
-                BASE_URL="${BASE_URL#http://}"
-                BASE_URL="${BASE_URL#https://}"
-                BASE_URL="https://${BASE_URL%%/*}"
-                form_build_id=$(curl -s -N $BASE_URL/user | grep -m 1 -o 'form-[^" ]\{40,\}')
-                curl -c cookie.txt -v -d "name=$URL_USERNAME&pass=$URL_PASSWORD&form_id=user_login&op=Log+in&form_build_id=$form_build_id" $BASE_URL/user
-                CURL_OPTIONS+=("-b cookie.txt")
+                LOGIN_COOKIE="${DIR_SESSION}/cookie.txt"
+                if [[ ! -f ${LOGIN_COOKIE} ]]; then
+                        BASE_URL=$FEED_URL
+                        BASE_URL="${BASE_URL#http://}"
+                        BASE_URL="${BASE_URL#https://}"
+                        BASE_URL="https://${BASE_URL%%/*}"
+                        form_build_id=$(curl -N $BASE_URL/user | grep -m 1 -o 'form-[^" ]\{40,\}')
+                        login_page=$(curl -c ${LOGIN_COOKIE} -d "name=$URL_USERNAME&pass=$URL_PASSWORD&form_id=user_login&op=Log+in&form_build_id=$form_build_id" $BASE_URL/user)
+                fi
+                CURL_OPTIONS+=("-b ${LOGIN_COOKIE}")
             fi
             case ${FILETYPE} in
                 'utf8')
@@ -2646,6 +2662,18 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
 
             # We will look for either '<rss ' or '<feed ' opening tags within first 9 lines of the INDEXFILE
             TESTLINES=$(sed -n 1,9p <<< "${INDEXFILE}")
+
+            unset -v INDEXFILE_TMP TESTLINES
+            ITEM_LINE=0
+            while IFS= read -r LINE; do
+                if [ $(echo ${LINE} | grep "<item>") ] ; then
+                        break
+                fi
+                ITEM_LINE=$((++ITEM_LINE))
+                TESTLINES+=${LINE}${NEWLINE}
+            done< <(printf "%s\n" "${INDEXFILE}")
+
+            INDEXFILE=$(echo "${INDEXFILE}" | tail -n +$ITEM_LINE -)
 
             if (( DEBUG == 1 )) ; then
                 printf '%s %s\n' "${DEBUG_LEADER}" "------ Check for RSS or Atom feed --------"
@@ -2770,41 +2798,44 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                                              -e 's/.*<title>\(.*\)<[/]title>.*$/TITLE \1/Ip' -e t \
                                              -e '/\(<enclosure\|<title>\|<media:content\).*/I{N;s/\ *\n/\ /;T;ba}')
                 fi
-                 # If TITLE tag appears after the ENCLOSURE tag in the file, reverse the order of list for parsing.
-                 if (( POST_CURL_RENAME_REVTITLETAG > 0 )); then
-                     INDEXFILE_TMP=$(echo "${INDEXFILE_TMP}" | sed -n '1!G;h;$p')
-                 fi
-                 # Merge TITLE AND URL lines onto single line divided by '<Url-Title>'
-                 INDEXFILE_TMP2=""
-                 while read -r TAG DATA; do
-                     case ${TAG} in
-                         "TITLE" )
-                             ITEM_TITLE="${DATA}"
+                # If TITLE tag appears after the ENCLOSURE tag in the file, reverse the order of list for parsing.
+                if (( POST_CURL_RENAME_REVTITLETAG > 0 )); then
+                    INDEXFILE_TMP=$(echo "${INDEXFILE_TMP}" | sed -n '1!G;h;$p')
+                fi
+                # Merge TITLE AND URL lines onto single line divided by '<Url-Title>'
+                unset -v INDEXFILE_TMP2
+                unset -v ITEM_TITLE ITEM_URL ITEM_PUBDATE
+                while read -r TAG DATA; do
+                    case ${TAG} in
+                        "TITLE" )
+                            ITEM_TITLE="${DATA}"
                              ;;
-                         "PUBDATE" )
-                            ITEM_PUBDATE="${DATA}"
+                        "PUBDATE" )
+                           ITEM_PUBDATE="${DATA}"
                              ;;
-                         "URL" )
-                             # with cleanup for URL (used to be called FINAL below ATOM section)
-                             ITEM_URL=$(echo "${DATA}" | sed -e 's/\s/%20/g' -e "s/'/%27/g" -e 's/\&apos;/%27/g' -e 's/\&amp;/\&/g')
+                        "URL" )
+                            # with cleanup for URL (used to be called FINAL below ATOM section)
+                            ITEM_URL=$(echo "${DATA}" | sed -e 's/\s/%20/g' -e "s/'/%27/g" -e 's/\&apos;/%27/g' -e 's/\&amp;/\&/g')
                              ;;
-                     esac
+                    esac
 
-                     if [[ ! -z ${ITEM_PUBDATE+set} ]] && [[ ! -z ${ITEM_URL+set} ]] && [[ ! -z ${ITEM_TITLE+set} ]]; then
-                        # Enabled handling of unset ITEM_TITLE items by including a dash at the end of the variable name to
-                        # signify that the default is a blank value (or we could specify a value we wanted after the dash).
-                        INDEXFILE_TMP2+="${ITEM_URL}<Url-Title>${ITEM_TITLE-}<Title-PubDate>${ITEM_PUBDATE}${NEWLINE}"
-                        unset -v ITEM_TITLE ITEM_URL ITEM_PUBDATE
-                     fi
+                    if [[ ! -z ${ITEM_PUBDATE+set} ]] && [[ ! -z ${ITEM_URL+set} ]] && [[ ! -z ${ITEM_TITLE+set} ]]; then
+                       # Enabled handling of unset ITEM_TITLE items by including a dash at the end of the variable name to
+                       # signify that the default is a blank value (or we could specify a value we wanted after the dash).
+                       INDEXFILE_TMP2+="${ITEM_URL}<Url-Title>${ITEM_TITLE-}<Title-PubDate>${ITEM_PUBDATE}${NEWLINE}"
+                       unset -v ITEM_TITLE ITEM_URL ITEM_PUBDATE
+                    fi
 
-                 done <<<"${INDEXFILE_TMP}"
-                 if (( POST_CURL_RENAME_REVTITLETAG > 0 )); then
-                     # Return INDEX to its default order
-                     INDEXFILE=$(echo "${INDEXFILE_TMP2}" | sed -n '1!G;h;$p')
-                 else
-                     # INDEX already in correct order.
-                     INDEXFILE="${INDEXFILE_TMP2}"
-                 fi
+                done <<<"${INDEXFILE_TMP}"
+                if (( POST_CURL_RENAME_REVTITLETAG > 0 )); then
+                    # Return INDEX to its default order
+                    INDEXFILE=$(echo "${INDEXFILE_TMP2}" | sed -n '1!G;h;$p')
+                else
+                    # INDEX already in correct order.
+                    INDEXFILE="${INDEXFILE_TMP2}"
+                fi
+
+                INDEXFILE=$(echo "${INDEXFILE}" | awk 'NF')
             elif grep -q '<feed ' <<< "${TESTLINES}"; then
                 if (( DEBUG == 1 )) ; then
                     printf '%s %s\n' "${DEBUG_LEADER}" "Atom Feed Found"
@@ -3078,6 +3109,8 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                         # Without the 'sed' statements.
                         URL_FILENAME="${URL##*/}"
                         URL_BASE="${URL%/*}"
+
+                        URL_FILENAME=${URL_FILENAME//%20/_}
 
                         # replace any whitespace in the filename with underscores.
                         URL_FILENAME=$(echo "${URL_FILENAME}" | tr '[:blank:]' '_' | tr -s '_')
@@ -3408,7 +3441,7 @@ if (( CLEANUP_ONLY == 0 )) && [[ -z ${IMPORT_OPML+set} && -z ${EXPORT_OPML+set} 
                             # Rename file to start from modification date
                             if (( POST_CURL_RENAME_PUBDATE == 1 )); then
                                 FILE_PUBDATE=$(date -d "$PUBDATE" '+%F')
-                                FILE_PUBDATE_END=$(date -d "$PUBDATE +1 week" '+%F')
+                                FILE_PUBDATE_END=$(date -d "$PUBDATE +6 days" '+%F')
                                 FILENAME_PUBDATE="${FILE_PUBDATE}_${FILE_PUBDATE_END}_${FINAL_FILENAME}"
                                 if [[ ! -f "${DIR_LIBRARY}/${FEED_CATEGORY}/${FEED_NAME}/${FILENAME_PUBDATE}" ]]; then
                                     if (( VERBOSITY >= 2 )); then
